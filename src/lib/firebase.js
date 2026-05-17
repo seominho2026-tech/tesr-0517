@@ -1,5 +1,4 @@
 import { initializeApp, getApps, getApp } from 'firebase/app';
-import { getAuth, GoogleAuthProvider } from 'firebase/auth';
 import { getFirestore } from 'firebase/firestore';
 
 const firebaseConfig = {
@@ -12,10 +11,10 @@ const firebaseConfig = {
   measurementId: "G-TER82RJY2C"
 };
 
-// Initialize Firebase (방어 로직 포함: Next.js에서 중복 초기화 방지)
+// Initialize Firebase (중복 초기화 방지)
 const app = !getApps().length ? initializeApp(firebaseConfig) : getApp();
-const auth = getAuth(app);
-const provider = new GoogleAuthProvider();
+
+// 이제 로그인(Auth)은 안 쓰고 데이터베이스(Firestore)만 사용합니다.
 const db = getFirestore(app);
 
-export { auth, provider, db };
+export { db };

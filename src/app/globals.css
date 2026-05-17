@@ -2,13 +2,13 @@
 
 /* 기본 설정 (변수 선언: 테마 색상 등) */
 :root {
-    --bg-color: #1a1b1e; /* 전체 배경색 (다크 모드 느낌) */
-    --card-bg: #25262b; /* 카드 배경색 */
-    --text-primary: #f8f9fa; /* 기본 글씨색 */
-    --text-secondary: #adb5bd; /* 보조 글씨색 */
-    --primary-color: #5c7cfa; /* 주요 포인트 색상 (파란색 계열) */
-    --primary-hover: #4c6ef5;
-    --border-color: #343a40; /* 선 색상 */
+    --bg-color: #f8f9fa; /* 전체 배경색 (밝은 느낌) */
+    --card-bg: #ffffff; /* 카드 배경색 (완전 흰색) */
+    --text-primary: #212529; /* 기본 글씨색 (어두운 회색) */
+    --text-secondary: #495057; /* 보조 글씨색 (중간 회색) */
+    --primary-color: #4c6ef5; /* 주요 포인트 색상 (파란색 계열) */
+    --primary-hover: #3b5bdb;
+    --border-color: #e9ecef; /* 선 색상 (연한 회색) */
     --radius: 12px; /* 둥근 모서리 크기 */
     --transition: all 0.3s cubic-bezier(0.25, 0.8, 0.25, 1);
 }
@@ -75,7 +75,7 @@ body {
 }
 
 .icon-btn:hover {
-    background-color: rgba(255,255,255,0.1);
+    background-color: rgba(0,0,0,0.05);
 }
 
 /* 질문 목록 공간 */
@@ -253,12 +253,12 @@ body {
 }
 
 .keyword-list li:hover {
-    background-color: rgba(255,255,255,0.05);
+    background-color: rgba(0,0,0,0.05);
     color: var(--primary-color);
 }
 
 .notice-item {
-    background-color: rgba(255,255,255,0.03);
+    background-color: rgba(0,0,0,0.03);
     padding: 12px;
     border-radius: 8px;
     border-left: 3px solid var(--primary-color);
@@ -346,7 +346,7 @@ body {
 
 textarea, input[type="text"] {
     width: 100%;
-    background-color: rgba(0,0,0,0.2);
+    background-color: rgba(0,0,0,0.03);
     border: 1px solid var(--border-color);
     color: var(--text-primary);
     border-radius: 8px;
