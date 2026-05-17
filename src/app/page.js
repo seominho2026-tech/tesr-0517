@@ -1,124 +1,173 @@
 "use client";
 
 import { useState, useEffect } from 'react';
-
-// === 초기 데이터 세팅 ===
-const CURRENT_USER = { id: 'user_01', name: '테스트유저' };
-
-const initialQuestions = [
-    {
-        id: 1,
-        authorId: 'user_02',
-        authorName: '김학생',
-        content: '수학 2단원 미적분에서 치환적분법이 너무 헷갈려요. 혹시 쉽게 이해하는 방법 아시는 분 있나요?',
-        keywords: ['#수학', '#미적분', '#어려움'],
-        createdAt: new Date(Date.now() - 3600000).toISOString(),
-        comments: [
-            { id: 101, authorId: 'user_03', authorName: '박천재', content: '공식을 무작정 외우기보다는 덩어리 전체를 하나의 문자로 두는 연습을 해보세요!' }
-        ]
-    },
-    {
-        id: 2,
-        authorId: 'user_01',
-        authorName: '테스트유저',
-        content: '내일 국어 수행평가 범위가 어디서부터 어디까지인지 아시는 분? 선생님께서 말씀해주신 걸 까먹었어요ㅠㅠ',
-        keywords: ['#국어', '#수행평가'],
-        createdAt: new Date(Date.now() - 7200000).toISOString(),
-        comments: []
-    }
-];
+import { auth, provider, db } from '../lib/firebase';
+import { signInWithPopup, onAuthStateChanged, signOut } from 'firebase/auth';
+import { collection, query, orderBy, onSnapshot, addDoc, updateDoc, doc, arrayUnion, serverTimestamp } from 'firebase/firestore';
 
 export default function Home() {
+    const [view, setView] = useState('landing'); // 'landing' (대문) 또는 'board' (게시판)
+    const [user, setUser] = useState(null);
     const [questions, setQuestions] = useState([]);
-    const [sidebarState, setSidebarState] = useState(null); // 'left' | 'right' | null
+    
+    // UI 상태
+    const [sidebarState, setSidebarState] = useState(null);
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [selectedQId, setSelectedQId] = useState(null);
 
-    // 새 질문 폼 상태
     const [newQContent, setNewQContent] = useState('');
     const [newQKeyword, setNewQKeyword] = useState('');
-
-    // 새 댓글 폼 상태
     const [commentInput, setCommentInput] = useState('');
 
-    // 첫 렌더링 시 로컬스토리지에서 데이터 불러오기
+    // 로그인 상태 자동 감지
     useEffect(() => {
-        const saved = localStorage.getItem('qa_data_nextjs');
-        if (saved) {
-            setQuestions(JSON.parse(saved));
-        } else {
-            setQuestions(initialQuestions);
-            localStorage.setItem('qa_data_nextjs', JSON.stringify(initialQuestions));
-        }
+        const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
+            setUser(currentUser);
+        });
+        return () => unsubscribe();
     }, []);
 
-    // questions가 바뀔 때마다 로컬스토리지 저장
+    // 파이어베이스(Firestore) 실시간 데이터 구독
     useEffect(() => {
-        if (questions.length > 0) {
-            localStorage.setItem('qa_data_nextjs', JSON.stringify(questions));
+        const q = query(collection(db, 'questions'), orderBy('createdAt', 'desc'));
+        const unsubscribe = onSnapshot(q, (snapshot) => {
+            const qs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+            setQuestions(qs);
+        });
+        return () => unsubscribe();
+    }, []);
+
+    // 로그인 버튼 클릭 시 구글 로그인 팝업 호출
+    const handleLogin = async () => {
+        try {
+            await signInWithPopup(auth, provider);
+            setView('board'); // 로그인 성공 시 바로 게시판으로 입장
+        } catch (error) {
+            console.error('로그인 에러:', error);
+            alert('로그인 중 문제가 발생했습니다.');
         }
-    }, [questions]);
-
-    // 키워드 목록 추출
-    const allKeywords = Array.from(new Set(questions.flatMap(q => q.keywords)));
-
-    // 날짜 포맷 함수 (예: 14:05)
-    const formatTime = (isoString) => {
-        const date = new Date(isoString);
-        return `${date.getHours()}:${String(date.getMinutes()).padStart(2, '0')}`;
     };
 
-    // 새 질문 추가 핸들러
-    const handleSubmitQuestion = () => {
-        if (!newQContent.trim()) {
-            alert('질문 내용을 입력해주세요!');
-            return;
-        }
+    const handleLogout = () => {
+        signOut(auth);
+        setView('landing'); // 로그아웃 시 대문으로 이동
+    };
+
+    // 새 질문 작성 후 Firestore에 저장
+    const handleSubmitQuestion = async () => {
+        if (!newQContent.trim()) return alert('질문 내용을 입력해주세요!');
         let keywords = [];
         if (newQKeyword.trim()) {
             keywords = newQKeyword.split(' ').filter(k => k.trim() !== '').map(k => k.startsWith('#') ? k : `#${k}`);
         }
-        const newQuestion = {
-            id: Date.now(),
-            authorId: CURRENT_USER.id,
-            authorName: CURRENT_USER.name,
-            content: newQContent.trim(),
-            keywords: keywords,
-            createdAt: new Date().toISOString(),
-            comments: []
-        };
-        setQuestions([newQuestion, ...questions]);
-        setNewQContent('');
-        setNewQKeyword('');
-        setIsModalOpen(false);
-    };
-
-    // 새 댓글 추가 핸들러
-    const handleSubmitComment = () => {
-        if (!commentInput.trim() || !selectedQId) return;
         
-        setQuestions(prev => prev.map(q => {
-            if (q.id === selectedQId) {
-                return {
-                    ...q,
-                    comments: [...q.comments, {
-                        id: Date.now(),
-                        authorId: CURRENT_USER.id,
-                        authorName: CURRENT_USER.name,
-                        content: commentInput.trim()
-                    }]
-                };
-            }
-            return q;
-        }));
-        setCommentInput('');
+        try {
+            await addDoc(collection(db, 'questions'), {
+                authorId: user.uid,
+                authorName: user.displayName || '익명 학생',
+                content: newQContent.trim(),
+                keywords: keywords,
+                createdAt: serverTimestamp(),
+                comments: []
+            });
+            setNewQContent('');
+            setNewQKeyword('');
+            setIsModalOpen(false);
+        } catch (error) {
+            console.error('질문 등록 에러:', error);
+            alert('질문 등록에 실패했습니다.');
+        }
     };
 
+    // 새 댓글 작성 후 Firestore에 저장
+    const handleSubmitComment = async () => {
+        if (!commentInput.trim() || !selectedQId || !user) return;
+        
+        try {
+            const qRef = doc(db, 'questions', selectedQId);
+            await updateDoc(qRef, {
+                comments: arrayUnion({
+                    id: Date.now().toString(), // 댓글용 임시 고유번호
+                    authorId: user.uid,
+                    authorName: user.displayName || '익명 학생',
+                    content: commentInput.trim(),
+                    createdAt: new Date().toISOString()
+                })
+            });
+            setCommentInput('');
+        } catch (error) {
+            console.error('댓글 등록 에러:', error);
+            alert('댓글 등록에 실패했습니다.');
+        }
+    };
+
+    const allKeywords = Array.from(new Set(questions.flatMap(q => q.keywords || [])));
     const selectedQuestion = questions.find(q => q.id === selectedQId);
 
+    // 타임스탬프 포맷 변환 함수
+    const formatTime = (ts) => {
+        if (!ts) return '방금 전';
+        // Firestore의 Timestamp는 toDate() 메서드를 가짐
+        const date = ts.toDate ? ts.toDate() : new Date(ts);
+        return `${date.getHours()}:${String(date.getMinutes()).padStart(2, '0')}`;
+    };
+
+    // ==========================================
+    // 1. 대문 (랜딩 페이지) 뷰 렌더링
+    // ==========================================
+    if (view === 'landing') {
+        return (
+            <div style={{ width: '100vw', height: '100vh', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', backgroundColor: '#fff', position: 'relative', overflow: 'hidden' }}>
+                <img src="/hero.png" alt="대문 배경" style={{ width: '100%', height: '100%', objectFit: 'cover', position: 'absolute', top: 0, left: 0 }} />
+                
+                <div style={{ 
+                    zIndex: 10, 
+                    display: 'flex', 
+                    flexDirection: 'column', 
+                    alignItems: 'center', 
+                    backgroundColor: 'rgba(255,255,255,0.9)', 
+                    padding: '40px 60px', 
+                    borderRadius: '24px', 
+                    boxShadow: '0 10px 40px rgba(0,0,0,0.2)' 
+                }}>
+                    <h1 style={{ color: '#1a1b1e', fontSize: '2.5rem', fontWeight: '900', marginBottom: '10px', textAlign: 'center' }}>
+                        질문이 자라는 공간<br/><span style={{color: 'var(--primary-color)'}}>Q&A Space</span>
+                    </h1>
+                    <p style={{ color: '#495057', fontSize: '1.1rem', marginBottom: '40px', fontWeight: '500' }}>
+                        학생들을 위한 자유롭고 따뜻한 질문답변 플랫폼
+                    </p>
+                    
+                    {user ? (
+                        <div style={{ textAlign: 'center' }}>
+                            <p style={{ marginBottom: '20px', color: '#1a1b1e', fontWeight: '600', fontSize: '1.2rem' }}>
+                                환영합니다, {user.displayName}님!
+                            </p>
+                            <button onClick={() => setView('board')} className="btn primary-btn" style={{ padding: '16px 40px', fontSize: '1.1rem', borderRadius: '30px', boxShadow: '0 4px 15px rgba(92,124,250,0.4)' }}>
+                                게시판으로 입장하기
+                            </button>
+                            <div style={{marginTop: '16px'}}>
+                                <button onClick={handleLogout} style={{ background: 'transparent', border: 'none', color: '#adb5bd', cursor: 'pointer', fontSize: '0.9rem' }}>
+                                    다른 계정으로 로그인 (로그아웃)
+                                </button>
+                            </div>
+                        </div>
+                    ) : (
+                        <button onClick={handleLogin} className="btn" style={{ backgroundColor: '#fff', color: '#1a1b1e', border: '1px solid #dee2e6', padding: '14px 28px', display: 'flex', alignItems: 'center', gap: '12px', boxShadow: '0 4px 10px rgba(0,0,0,0.05)', borderRadius: '30px', fontSize: '1.1rem', fontWeight: '600' }}>
+                            <img src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg" alt="Google" style={{ width: '24px' }}/>
+                            구글 계정으로 시작하기
+                        </button>
+                    )}
+                </div>
+            </div>
+        );
+    }
+
+    // ==========================================
+    // 2. 메인 게시판 뷰 렌더링
+    // ==========================================
     return (
         <div className="app-container">
-            {/* 왼쪽 사이드바 (키워드) */}
+            {/* 좌측 키워드 사이드바 */}
             <aside className={`sidebar left-sidebar ${sidebarState === 'left' ? 'open' : ''}`}>
                 <div className="sidebar-header">
                     <h2>키워드</h2>
@@ -133,64 +182,30 @@ export default function Home() {
                 </div>
             </aside>
 
-            {/* 메인 콘텐츠 (질문 게시판) */}
             <main className="main-content">
                 <header className="main-header">
-                    <button className="icon-btn" id="menu-btn" onClick={() => setSidebarState('left')}>
+                    <button className="icon-btn" onClick={() => setSidebarState('left')}>
                         <i className="ph ph-list"></i>
                     </button>
-                    <h1>질문 게시판</h1>
-                    <button className="icon-btn" id="notice-btn" onClick={() => setSidebarState('right')}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                        <h1>Q&A Space</h1>
+                        {/* 헤더에도 작은 로그아웃 버튼 배치 */}
+                        <button onClick={handleLogout} style={{ fontSize: '0.8rem', background: 'var(--border-color)', border: 'none', color: 'var(--text-primary)', padding: '4px 8px', borderRadius: '4px', cursor: 'pointer' }}>
+                            로그아웃
+                        </button>
+                    </div>
+                    <button className="icon-btn" onClick={() => setSidebarState('right')}>
                         <i className="ph ph-bell"></i>
                     </button>
                 </header>
 
                 <div className="feed-container">
-                    {/* 이미지 배경을 활용한 멋진 상단 배너 */}
-                    <div style={{
-                        position: 'relative',
-                        width: '100%',
-                        height: '240px', // 적당히 큰 높이
-                        marginBottom: '24px',
-                        borderRadius: 'var(--radius)',
-                        overflow: 'hidden',
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        backgroundColor: '#fff',
-                        boxShadow: '0 4px 15px rgba(0,0,0,0.1)'
-                    }}>
-                        <img 
-                            src="/hero.png" 
-                            alt="열심히 공부하는 학생들" 
-                            style={{
-                                width: '100%',
-                                height: '100%',
-                                objectFit: 'cover', // 이미지 비율 유지하며 꽉 채움
-                                position: 'absolute',
-                                top: 0,
-                                left: 0
-                            }} 
-                        />
-                        {/* 이미지 중앙에 배치될 앱 제목 */}
-                        <h2 style={{
-                            position: 'relative',
-                            zIndex: 10,
-                            color: '#1a1b1e', // 짙은 색으로 또렷하게
-                            fontSize: '2.2rem',
-                            fontWeight: '800',
-                            textAlign: 'center',
-                            // 글씨가 잘 보이도록 주변에 하얀빛 그림자 효과
-                            textShadow: '0 2px 15px rgba(255,255,255,0.9), 0 0 5px rgba(255,255,255,0.8)',
-                            padding: '10px 20px'
-                        }}>
-                            질문이 자라는 공간<br/>Q&A Space
-                        </h2>
-                    </div>
-
                     <div className="question-list">
                         {questions.length === 0 && (
-                            <p style={{textAlign:'center', color:'var(--text-secondary)', marginTop:'20px'}}>아직 등록된 질문이 없습니다.<br/>첫 질문을 남겨보세요!</p>
+                            <div style={{textAlign:'center', color:'var(--text-secondary)', marginTop:'40px', padding: '20px', background: 'var(--card-bg)', borderRadius: '12px'}}>
+                                <h3>첫 질문의 주인공이 되어보세요!</h3>
+                                <p style={{marginTop: '10px', fontSize: '0.9rem'}}>오른쪽 아래 <b>+</b> 버튼을 눌러 새 질문을 등록할 수 있습니다.</p>
+                            </div>
                         )}
                         {questions.map(q => (
                             <div key={q.id} className="question-card" onClick={() => setSelectedQId(q.id)}>
@@ -201,10 +216,10 @@ export default function Home() {
                                 <div className="card-content">{q.content}</div>
                                 <div className="card-footer">
                                     <div className="keywords">
-                                        {q.keywords.map(kw => <span key={kw} className="keyword-tag">{kw}</span>)}
+                                        {(q.keywords || []).map(kw => <span key={kw} className="keyword-tag">{kw}</span>)}
                                     </div>
                                     <div className="comment-count">
-                                        <i className="ph ph-chat-circle"></i> {q.comments.length}
+                                        <i className="ph ph-chat-circle"></i> {(q.comments || []).length}
                                     </div>
                                 </div>
                             </div>
@@ -217,7 +232,7 @@ export default function Home() {
                 </button>
             </main>
 
-            {/* 오른쪽 사이드바 (공지사항) */}
+            {/* 우측 공지사항 사이드바 */}
             <aside className={`sidebar right-sidebar ${sidebarState === 'right' ? 'open' : ''}`}>
                 <div className="sidebar-header">
                     <button className="close-btn" onClick={() => setSidebarState(null)}>
@@ -228,24 +243,21 @@ export default function Home() {
                 <div className="sidebar-content">
                     <ul className="notice-list">
                         <li className="notice-item">
-                            <span className="notice-badge">필독</span>
-                            <p>질문 작성 시 예의를 지켜주세요!</p>
+                            <span className="notice-badge">안내</span>
+                            <p>실제 파이어베이스 DB가 연결되었습니다! 이제 질문을 올리면 클라우드에 저장됩니다.</p>
                         </li>
                         <li className="notice-item">
-                            <span className="notice-badge">안내</span>
-                            <p>모르는 수학 문제는 #수학 태그를 달아보세요.</p>
+                            <span className="notice-badge">환영</span>
+                            <p>{user?.displayName}님, 활발한 소통 부탁드립니다!</p>
                         </li>
                     </ul>
                 </div>
             </aside>
 
-            {/* 모바일 오버레이 */}
-            <div 
-                className={`overlay ${sidebarState ? 'show' : ''}`} 
-                onClick={() => setSidebarState(null)}
-            ></div>
+            {/* 모바일 뒷배경 어둡게 */}
+            <div className={`overlay ${sidebarState ? 'show' : ''}`} onClick={() => setSidebarState(null)}></div>
 
-            {/* 질문 작성 모달 */}
+            {/* 새 질문 작성 창 (모달) */}
             <div className={`modal ${isModalOpen ? 'show' : ''}`}>
                 <div className="modal-content">
                     <div className="modal-header">
@@ -274,7 +286,7 @@ export default function Home() {
                 </div>
             </div>
 
-            {/* 상세 화면 (댓글) */}
+            {/* 질문 상세 및 댓글 창 */}
             <div className={`detail-view ${selectedQId ? 'open' : ''}`}>
                 <div className="detail-header">
                     <button className="icon-btn" onClick={() => setSelectedQId(null)}>
@@ -289,15 +301,15 @@ export default function Home() {
                             <div className="q-author">{selectedQuestion.authorName}의 질문</div>
                             <div className="q-text">{selectedQuestion.content}</div>
                             <div className="keywords">
-                                {selectedQuestion.keywords.map(kw => <span key={kw} className="keyword-tag">{kw}</span>)}
+                                {(selectedQuestion.keywords || []).map(kw => <span key={kw} className="keyword-tag">{kw}</span>)}
                             </div>
                         </div>
                         <div className="comment-section">
                             <div className="comment-list">
-                                {selectedQuestion.comments.length === 0 && (
-                                    <p style={{textAlign:'center', color:'var(--text-secondary)', fontSize: '0.9rem'}}>아직 답변이 없습니다. 첫 답변을 달아주세요!</p>
+                                {(!selectedQuestion.comments || selectedQuestion.comments.length === 0) && (
+                                    <p style={{textAlign:'center', color:'var(--text-secondary)', fontSize: '0.9rem', marginTop: '20px'}}>아직 답변이 없습니다. 첫 답변을 달아주세요!</p>
                                 )}
-                                {selectedQuestion.comments.map(c => (
+                                {(selectedQuestion.comments || []).map(c => (
                                     <div key={c.id} className="comment-item">
                                         <div className="comment-avatar">{c.authorName.charAt(0)}</div>
                                         <div className="comment-body">
